@@ -180,29 +180,41 @@ def radialTreee(
             ax.plot(np.linspace(_r, _xr2, 100), link, c=_color, linewidth=linewidth)
 
     label_coords = []
-    # determine the coordiante of the labels and their rotation:
+    # determine the coordinate of the labels and their rotation:
     for i, label in enumerate(Z2["ivl"]):
         # scipy (1.x.x) places the leaves in x = 5+i*10 , and we can use this
-        # to calulate where to put the labels
+        # to calculate where to put the labels
         place = (5.0 + i * 10.0) / xmax * 2
-        label_coords.append(
-            [
-                np.cos(place * np.pi) * (1.05 + offset),  # _x
-                np.sin(place * np.pi) * (1.05 + offset),  # _y
-                place * 180,  # _rot
-            ]
-        )
+        # Calculate base position
+        x_pos = np.cos(place * np.pi) * (1.05 + offset)
+        y_pos = np.sin(place * np.pi) * (1.05 + offset)
+        # Determine if this label is on the left side (when x < 0)
+        is_left_side = x_pos < 0
+        # For labels on the left side, adjust rotation to make them readable
+        if is_left_side:
+            rotation = place * 180 + 180  # Add 180 degrees to flip them
+        else:
+            rotation = place * 180
+        label_coords.append([x_pos, y_pos, rotation])
+        
     if addlabels == True:
         assert len(Z2["ivl"]) == len(label_coords), (
             f'Internal error, label numbers for Z2 ({len(Z2["ivl"])})'
             f" and for calculated labels ({len(label_coords)}) must be equal!"
         )
         for (_x, _y, _rot), label in zip(label_coords, Z2["ivl"]):
+            # Determine text alignment based on position
+            # For left side (x < 0), we'll right-align the text
+            # For right side (x >= 0), we'll left-align the text
+            if _x < 0:
+                ha = "right"
+            else:
+                ha = "left"
             ax.text(
                 _x,
                 _y,
                 label,
-                {"va": "center"},
+                {"va": "center", "ha": ha},  # Add horizontal alignment
                 rotation_mode="anchor",
                 rotation=_rot,
                 fontsize=fontsize,
