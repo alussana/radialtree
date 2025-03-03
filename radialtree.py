@@ -1,14 +1,12 @@
+#!/usr/bin/env python3
+
 import scipy.cluster.hierarchy as sch
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
 import numpy as np
 import matplotlib.cm as cm
 from matplotlib.axes import Axes
 import matplotlib
 from matplotlib.lines import Line2D
-
-# import seaborn as sns
-# sns.set_theme()
 
 
 colormap_list = [
@@ -34,7 +32,6 @@ def radialTreee(
     colorlabels=None,
     colorlabels_legend=None,
 ):
-
     """
     Drawing a radial dendrogram from a scipy dendrogram output.
     Parameters
@@ -49,7 +46,6 @@ def radialTreee(
     ax : Axes or None:
         Axes in which to draw the plot, otherwise use the currently-active Axes.
     pallete : string or None
-
         Matlab colormap name.
         If `None` is provided then `color_list` from Z2 is used as is.
     sample_classes : dict
@@ -66,7 +62,6 @@ def radialTreee(
         the color label. The value is a dictionary that has two keys "colors" and "labels".
         The value of "colors" is the list of RGB color codes, each corresponds to the class of a leaf.
         e.g., {"color1":{"colors":[[1,0,0,1], ....], "labels":["label1","label2",...]}}
-
     Returns
     -------
     Raises
@@ -82,6 +77,7 @@ def radialTreee(
     """
     if ax is None:
         ax: Axes = plt.gca()
+
     linewidth = 0.5
     R = 1
     width = R * 0.1
@@ -91,121 +87,134 @@ def radialTreee(
         offset = (
             width * len(colorlabels) / R + space * (len(colorlabels) - 1) / R + 0.05
         )
-        print(offset)
     elif sample_classes != None:
         offset = (
             width * len(sample_classes) / R
             + space * (len(sample_classes) - 1) / R
             + 0.05
         )
-        print(offset)
     else:
-
         offset = 0
 
     xmax = np.amax(Z2["icoord"])
     xmin = np.amin(Z2["icoord"])
     ymax = np.amax(Z2["dcoord"])
-    # print(
-    #     f"{xmax=}",
-    #     np.amin(Z2["icoord"]),
-    #     (xmax - xmin) / (len(Z2["ivl"]) - 1),
-    #     (len(Z2["ivl"])),
-    # )
+
+    # number of leaves
+    n_leaves = len(Z2["ivl"])
+
     ucolors = sorted(set(Z2["color_list"]))
-    # cmap = cm.gist_rainbow(np.linspace(0, 1, len(ucolors)))
     if pallete:
         cmp = cm.get_cmap(pallete, len(ucolors))
-        # print(cmp)
         if type(cmp) == matplotlib.colors.LinearSegmentedColormap:
             cmap = cmp(np.linspace(0, 1, len(ucolors)))
         else:
             cmap = cmp.colors
-
         def get_color(c):
             return cmap[ucolors.index(c)]
-
     else:
-
         def get_color(c):
             return c
+        
+    # create a mapping from original x-coordinates to evenly spaced angles
+    x_to_angle = {}
+    leaf_positions = []
 
-    nlabels = 0
+    # calculate positions for leaves
+    for i, label in enumerate(Z2["ivl"]):
+        # original x position in scipy dendrogram
+        orig_x = 5.0 + i * 10.0
+        # convert to radians, evenly spaced around the circle
+        angle = 2 * np.pi * i / n_leaves
+        x_to_angle[orig_x] = angle
+        leaf_positions.append((orig_x, angle))
+
+    # for internal nodes, interpolate angles based on their children's positions
+    for coords in Z2["icoord"]:
+        x1, x2 = coords[0], coords[2]  # the x positions of the two children
+        
+        if x1 not in x_to_angle:
+            
+            # find closest leaf positions and interpolate
+            closest_positions = sorted(leaf_positions, key=lambda pos: abs(pos[0] - x1))
+            if closest_positions:
+                closest_x, closest_angle = closest_positions[0]
+                x_to_angle[x1] = closest_angle
+        
+        if x2 not in x_to_angle:
+            
+            closest_positions = sorted(leaf_positions, key=lambda pos: abs(pos[0] - x2))
+            if closest_positions:
+                closest_x, closest_angle = closest_positions[0]
+                x_to_angle[x2] = closest_angle
+    
+    # draw the dendrogram with the angular mapping
     for icoord, dcoord, c in sorted(zip(Z2["icoord"], Z2["dcoord"], Z2["color_list"])):
-        # x, y = Z2['icoord'][0], Z2['dcoord'][0]
-        _color = get_color(c)
-        if c == "C0":  # np.abs(_xr1)<0.000000001 and np.abs(_yr1) <0.000000001:
+        _color = get_color(c)        
+        if c == "C0":
             _color = "black"
-
-        # transforming original x coordinates into relative circumference positions and y into radius
-        # the rightmost leaf is going to [1, 0]
+        
+        # map original x coordinates to angles and then to x,y positions
         r = R * (1 - np.array(dcoord) / ymax)
-        _x = np.cos(
-            2 * np.pi * np.array([icoord[0], icoord[2]]) / xmax
-        )  # transforming original x coordinates into x circumference positions
-        _xr0 = _x[0] * r[0]
-        _xr1 = _x[0] * r[1]
-        _xr2 = _x[1] * r[2]
-        _xr3 = _x[1] * r[3]
-        _y = np.sin(
-            2 * np.pi * np.array([icoord[0], icoord[2]]) / xmax
-        )  # transforming original x coordinates into y circumference positions
-        _yr0 = _y[0] * r[0]
-        _yr1 = _y[0] * r[1]
-        _yr2 = _y[1] * r[2]
-        _yr3 = _y[1] * r[3]
-        # ax.scatter([_xr0, _xr1, _xr2, _xr3],[_yr0, _yr1, _yr2,_yr3], c="b")
-
-        # if y[0]>0 and y[3]>0:
-        # _color="black"
-        # plotting radial lines
+        
+        # get the angles for the two endpoints using our mapping
+        angle1 = x_to_angle.get(icoord[0], 2 * np.pi * icoord[0] / xmax)
+        angle2 = x_to_angle.get(icoord[2], 2 * np.pi * icoord[2] / xmax)
+        
+        # calculate x,y coordinates for the four points
+        _xr0 = np.cos(angle1) * r[0]
+        _yr0 = np.sin(angle1) * r[0]
+        _xr1 = np.cos(angle1) * r[1]
+        _yr1 = np.sin(angle1) * r[1]
+        _xr2 = np.cos(angle2) * r[2]
+        _yr2 = np.sin(angle2) * r[2]
+        _xr3 = np.cos(angle2) * r[3]
+        _yr3 = np.sin(angle2) * r[3]
+        
+        # plot radial lines
         ax.plot([_xr0, _xr1], [_yr0, _yr1], c=_color, linewidth=linewidth)
         ax.plot([_xr2, _xr3], [_yr2, _yr3], c=_color, linewidth=linewidth)
-
-        # plotting circular links between nodes
-        if _yr1 > 0 and _yr2 > 0:
-            link = np.sqrt(r[1] ** 2 - np.linspace(_xr1, _xr2, 100) ** 2)
-            ax.plot(np.linspace(_xr1, _xr2, 100), link, c=_color, linewidth=linewidth)
-        elif _yr1 < 0 and _yr2 < 0:
-            link = -np.sqrt(r[1] ** 2 - np.linspace(_xr1, _xr2, 100) ** 2)
-
-            ax.plot(np.linspace(_xr1, _xr2, 100), link, c=_color, linewidth=linewidth)
-        elif _yr1 > 0 and _yr2 < 0:
-            _r = r[1]
-            if _xr1 < 0 or _xr2 < 0:
-                _r = -_r
-            link = np.sqrt(r[1] ** 2 - np.linspace(_xr1, _r, 100) ** 2)
-            ax.plot(np.linspace(_xr1, _r, 100), link, c=_color, linewidth=linewidth)
-            link = -np.sqrt(r[1] ** 2 - np.linspace(_r, _xr2, 100) ** 2)
-            ax.plot(np.linspace(_r, _xr2, 100), link, c=_color, linewidth=linewidth)
-
-    label_coords = []
-    # determine the coordinate of the labels and their rotation:
-    for i, label in enumerate(Z2["ivl"]):
-        # scipy (1.x.x) places the leaves in x = 5+i*10 , and we can use this
-        # to calculate where to put the labels
-        place = (5.0 + i * 10.0) / xmax * 2
-        # Calculate base position
-        x_pos = np.cos(place * np.pi) * (1.05 + offset)
-        y_pos = np.sin(place * np.pi) * (1.05 + offset)
-        # Determine if this label is on the left side (when x < 0)
-        is_left_side = x_pos < 0
-        # For labels on the left side, adjust rotation to make them readable
-        if is_left_side:
-            rotation = place * 180 + 180  # Add 180 degrees to flip them
-        else:
-            rotation = place * 180
-        label_coords.append([x_pos, y_pos, rotation])
         
+        # determine how to draw the arc connecting branches
+        arc_radius = r[1]  # use the inner radius for the arc
+        
+        # calculate angular difference, ensuring we take the shorter path
+        angular_diff = angle2 - angle1
+        if angular_diff > np.pi:
+            angular_diff -= 2 * np.pi
+        elif angular_diff < -np.pi:
+            angular_diff += 2 * np.pi
+        
+        # draw the arc with multiple segments for smoothness
+        num_segments = 50
+        angles = np.linspace(angle1, angle2, num_segments)
+        x_arc = arc_radius * np.cos(angles)
+        y_arc = arc_radius * np.sin(angles)
+        ax.plot(x_arc, y_arc, c=_color, linewidth=linewidth)
+    
+    # calculate evenly spaced label positions
+    label_coords = []
+    for i, label in enumerate(Z2["ivl"]):
+        # evenly distribute angles around the circle
+        angle = 2 * np.pi * i / n_leaves
+        # calculate base position with offset for labels
+        x_pos = np.cos(angle) * (1.05 + offset)
+        y_pos = np.sin(angle) * (1.05 + offset)
+        # determine rotation based on position
+        # for left side of circle, adjust text rotation for readability
+        if x_pos < 0:
+            rotation = angle * 180 / np.pi + 180  # Convert to degrees and flip
+        else:
+            rotation = angle * 180 / np.pi  # Convert to degrees
+        label_coords.append([x_pos, y_pos, rotation])
+    
     if addlabels == True:
         assert len(Z2["ivl"]) == len(label_coords), (
             f'Internal error, label numbers for Z2 ({len(Z2["ivl"])})'
             f" and for calculated labels ({len(label_coords)}) must be equal!"
         )
         for (_x, _y, _rot), label in zip(label_coords, Z2["ivl"]):
-            # Determine text alignment based on position
-            # For left side (x < 0), we'll right-align the text
-            # For right side (x >= 0), we'll left-align the text
+            # determine text alignment based on position
             if _x < 0:
                 ha = "right"
             else:
@@ -214,135 +223,84 @@ def radialTreee(
                 _x,
                 _y,
                 label,
-                {"va": "center", "ha": ha},  # Add horizontal alignment
+                {"va": "center", "ha": ha},
                 rotation_mode="anchor",
                 rotation=_rot,
                 fontsize=fontsize,
             )
-
-    if colorlabels != None:
-        assert len(Z2["ivl"]) == len(label_coords), (
-            "Internal error, label numbers "
-            + str(len(Z2["ivl"]))
-            + " and "
-            + str(len(label_coords))
-            + " must be equal!"
-        )
-
-        j = 0
-        outerrad = R * 1.05 + width * len(colorlabels) + space * (len(colorlabels) - 1)
-
-        print(outerrad)
-        # sort_index=np.argsort(Z2['icoord'])
-        # print(sort_index)
-        intervals = []
-        for i in range(len(label_coords)):
-            _xl, _yl, _rotl = label_coords[i - 1]
-            _x, _y, _rot = label_coords[i]
-            if i == len(label_coords) - 1:
-                _xr, _yr, _rotr = label_coords[0]
-            else:
-                _xr, _yr, _rotr = label_coords[i + 1]
-            d = ((_xr - _xl) ** 2 + (_yr - _yl) ** 2) ** 0.5
-            intervals.append(d)
-        colorpos = intervals  # np.ones([len(label_coords)])
-        labelnames = []
-        for labelname, colorlist in colorlabels.items():
-
-            colorlist = np.array(colorlist)[Z2["leaves"]]
-            outerrad = outerrad - width * j - space * j
-            innerrad = outerrad - width
-            patches, texts = ax.pie(
-                colorpos,
-                colors=colorlist,
-                radius=outerrad,
-                counterclock=True,
-                startangle=label_coords[0][2] * 0.5,
-                wedgeprops=dict(
-                    width=width,
-                    # edgecolor='w', #if this is active the wedges will be more clearly separated
-                ),
-            )
-
-
-            labelnames.append(labelname)
-            j += 1
-
-        if colorlabels_legend != None:
-            for i, labelname in enumerate(labelnames):
-                print(colorlabels_legend[labelname]["colors"])
-                colorlines = []
-                for c in colorlabels_legend[labelname]["colors"]:
-                    colorlines.append(Line2D([0], [0], color=c, lw=4))
-
-                leg = ax.legend(
-                    colorlines,
-                    colorlabels_legend[labelname]["labels"],
-                    bbox_to_anchor=(1.5 + 0.3 * i, 1.0),
-                    title=labelname,
+    # handle color labels (wedges)
+    if colorlabels != None or sample_classes != None:
+        
+        # compute even pie intervals for wedges
+        intervals = np.ones(n_leaves) * (2 * np.pi / n_leaves)
+        
+        if colorlabels != None:
+            j = 0
+            outerrad = R * 1.05 + width * len(colorlabels) + space * (len(colorlabels) - 1)
+            labelnames = []
+        
+            for labelname, colorlist in colorlabels.items():
+                colorlist = np.array(colorlist)[Z2["leaves"]]
+                outerrad = outerrad - width * j - space * j
+                
+                # draw the pie chart with even wedges
+                patches, texts = ax.pie(
+                    intervals,
+                    colors=colorlist,
+                    radius=outerrad,
+                    counterclock=True,
+                    startangle=360 / (2 * n_leaves),
+                    wedgeprops=dict(width=width),
                 )
-                ax.add_artist(leg)
-    elif sample_classes != None:
-        assert len(Z2["ivl"]) == len(label_coords), (
-            "Internal error, label numbers "
-            + str(len(Z2["ivl"]))
-            + " and "
-            + str(len(label_coords))
-            + " must be equal!"
-        )
-
-        j = 0
-        outerrad = (
-            R * 1.05 + width * len(sample_classes) + space * (len(sample_classes) - 1)
-        )
-
-        print(outerrad)
-        # sort_index=np.argsort(Z2['icoord'])
-        # print(sort_index)
-        intervals = []
-        for i in range(len(label_coords)):
-            _xl, _yl, _rotl = label_coords[i - 1]
-            _x, _y, _rot = label_coords[i]
-            if i == len(label_coords) - 1:
-                _xr, _yr, _rotr = label_coords[0]
-            else:
-                _xr, _yr, _rotr = label_coords[i + 1]
-            d = ((_xr - _xl) ** 2 + (_yr - _yl) ** 2) ** 0.5
-            intervals.append(d)
-        colorpos = intervals  # np.ones([len(label_coords)])
-        labelnames = []
-        colorlabels_legend = {}
-        for labelname, colorlist in sample_classes.items():
-
-            ucolors = sorted(list(np.unique(colorlist)))
-            type_num = len(ucolors)
-            _cmp = cm.get_cmap(colormap_list[j], type_num)
-            _colorlist = [_cmp(ucolors.index(c)) for c in colorlist]
-            _colorlist = np.array(_colorlist)[Z2["leaves"]]
-            outerrad = outerrad - width * j - space * j
-            innerrad = outerrad - width
-            patches, texts = ax.pie(
-                colorpos,
-                colors=_colorlist,
-                radius=outerrad,
-                counterclock=True,
-                startangle=label_coords[0][2] * 0.5,
-                wedgeprops=dict(
-                    width=width,
-                    # edgecolor='w', #if this is active the wedges will be more clearly separated
-                ),
-            )
-
-
-            labelnames.append(labelname)
-            colorlabels_legend[labelname] = {}
-            colorlabels_legend[labelname]["colors"] = _cmp(np.linspace(0, 1, type_num))
-            colorlabels_legend[labelname]["labels"] = ucolors
-            j += 1
-
-        if colorlabels_legend != None:
+                
+                labelnames.append(labelname)
+                j += 1
+            
+            # handle legend
+            if colorlabels_legend != None:
+                for i, labelname in enumerate(labelnames):
+                    colorlines = []
+                    for c in colorlabels_legend[labelname]["colors"]:
+                        colorlines.append(Line2D([0], [0], color=c, lw=4))
+                    leg = ax.legend(
+                        colorlines,
+                        colorlabels_legend[labelname]["labels"],
+                        bbox_to_anchor=(1.5 + 0.3 * i, 1.0),
+                        title=labelname,
+                    )
+                    ax.add_artist(leg)
+        
+        elif sample_classes != None:
+            j = 0
+            outerrad = R * 1.05 + width * len(sample_classes) + space * (len(sample_classes) - 1)
+            labelnames = []
+            colorlabels_legend = {}
+            
+            for labelname, colorlist in sample_classes.items():
+                ucolors = sorted(list(np.unique(colorlist)))
+                type_num = len(ucolors)
+                _cmp = cm.get_cmap(colormap_list[j], type_num)
+                _colorlist = [_cmp(ucolors.index(c)) for c in colorlist]
+                _colorlist = np.array(_colorlist)[Z2["leaves"]]
+                outerrad = outerrad - width * j - space * j
+                
+                # draw the pie chart with even wedges
+                patches, texts = ax.pie(
+                    intervals,
+                    colors=_colorlist,
+                    radius=outerrad,
+                    counterclock=True,
+                    startangle=360 / (2 * n_leaves),
+                    wedgeprops=dict(width=width),
+                )
+                labelnames.append(labelname)
+                colorlabels_legend[labelname] = {}
+                colorlabels_legend[labelname]["colors"] = _cmp(np.linspace(0, 1, type_num))
+                colorlabels_legend[labelname]["labels"] = ucolors
+                j += 1
+            
+            # handle legend
             for i, labelname in enumerate(labelnames):
-                print(colorlabels_legend[labelname]["colors"])
                 colorlines = []
                 for c in colorlabels_legend[labelname]["colors"]:
                     colorlines.append(Line2D([0], [0], color=c, lw=4))
@@ -353,23 +311,25 @@ def radialTreee(
                     title=labelname,
                 )
                 ax.add_artist(leg)
-            # break
+    
+    # remove spines and ticks
     ax.spines.right.set_visible(False)
     ax.spines.top.set_visible(False)
     ax.spines.left.set_visible(False)
     ax.spines.bottom.set_visible(False)
     ax.set_xticks([])
     ax.set_yticks([])
+    
+    # set axis limits
     if colorlabels != None:
         maxr = R * 1.05 + width * len(colorlabels) + space * (len(colorlabels) - 1)
     elif sample_classes != None:
-        maxr = (
-            R * 1.05 + width * len(sample_classes) + space * (len(sample_classes) - 1)
-        )
+        maxr = R * 1.05 + width * len(sample_classes) + space * (len(sample_classes) - 1)
     else:
         maxr = R * 1.05
     ax.set_xlim(-maxr, maxr)
     ax.set_ylim(-maxr, maxr)
+    
     return ax
 
 
@@ -426,7 +386,6 @@ def plot(
     Examples
     --------
     """
-
     plt.rcParams["font.family"] = "sans-serif"
     plt.rcParams["font.sans-serif"] = ["Arial"]
     plt.rcParams["svg.fonttype"] = "none"
@@ -437,7 +396,9 @@ def plot(
         figsize = [10, 5]
     elif figsize == None:
         figsize = [5, 5]
+    
     fig, ax = plt.subplots(figsize=figsize)
+    
     ax = radialTreee(
         Z2,
         fontsize=fontsize,
@@ -448,7 +409,7 @@ def plot(
         colorlabels=colorlabels,
         colorlabels_legend=colorlabels_legend,
     )
-
+    
     if show == True:
         fig.show()
     else:
@@ -556,7 +517,7 @@ if __name__ == "__main__":
 
     test = [0, 1, 2, 3]
     np.random.seed(1)
-    numleaf = 200
+    numleaf = 42
     _alphabets = [chr(i) for i in range(97, 97 + 24)]
     labels = sorted(
         ["".join(list(np.random.choice(_alphabets, 10))) for i in range(numleaf)]
@@ -570,6 +531,7 @@ if __name__ == "__main__":
             D[i, j] = abs(x[i] - x[j])
     Y = sch.linkage(D, method="single")
     Z2 = sch.dendrogram(Y, labels=labels, no_plot=True)
+
     if 3 in test:
         _test_3(Z2)
 
@@ -583,4 +545,3 @@ if __name__ == "__main__":
         _test_2(Z2)
 
     plt.show()
-
